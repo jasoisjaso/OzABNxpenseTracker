@@ -1,0 +1,15 @@
+services:
+  backend:
+    build: ./backend
+    volumes:
+      - ./backend/uploads:/app/uploads
+      - ./backend/database:/app/database
+    expose:
+      - "8000"
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "8721:80"
+    depends_on:
+      - backend

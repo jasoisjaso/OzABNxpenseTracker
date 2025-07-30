@@ -1,0 +1,1379 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Digital Shoebox</title>
+    <script src="https://unpkg.com/chart.js@4.4.3/dist/chart.umd.js"></script>
+    <script src="https://unpkg.com/date-fns@4.1.0/cdn.min.js"></script>
+    <script src="https://unpkg.com/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.min.js"></script>
+    <style>
+        :root {
+            --primary-color: #007bff;
+            --secondary-color: #6c757d;
+            --background-color: #f4f7f9;
+            --card-background: #ffffff;
+            --text-color: #333;
+            --light-text-color: #666;
+            --border-color: #e9ecef;
+            --success-color: #28a745;
+            --danger-color: #dc3545;
+            --shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            margin: 0 0 80px 0; /* Add margin to bottom to avoid overlap with nav bar */
+            background-color: var(--background-color);
+            color: var(--text-color);
+            line-height: 1.6;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 1rem;
+        }
+        .page {
+            display: none; /* Hidden by default */
+        }
+        .page.active {
+            display: block; /* Shown when active */
+        }
+        .card {
+            background: var(--card-background);
+            padding: 1.5rem;
+            border-radius: 12px;
+            box-shadow: var(--shadow);
+            margin-bottom: 1.5rem;
+        }
+        .card h2 {
+            margin-top: 0;
+            color: var(--primary-color);
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 0.75rem;
+            margin-bottom: 1.5rem;
+            font-size: 1.5rem;
+        }
+        .form-group {
+            margin-bottom: 1.5rem;
+        }
+        .form-group label {
+            display: block;
+            margin-bottom: .5rem;
+            font-weight: 600;
+            color: var(--light-text-color);
+        }
+        .form-group input, .form-group select, .form-group textarea {
+            width: 100%;
+            padding: 0.85rem;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            box-sizing: border-box;
+            font-size: 1rem;
+            background-color: #f8f9fa;
+        }
+        .btn {
+            display: inline-block;
+            width: 100%;
+            padding: 1rem;
+            background-color: var(--primary-color);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 1.1rem;
+            font-weight: 600;
+            text-align: center;
+            transition: background-color 0.2s;
+        }
+        .btn:hover {
+            background-color: #0056b3;
+        }
+        .btn-success {
+            background-color: var(--success-color);
+        }
+        .btn-success:hover {
+            background-color: #218838;
+        }
+        .btn-danger {
+            background-color: var(--danger-color);
+        }
+        .btn-danger:hover {
+            background-color: #c82333;
+        }
+        .loader {
+            text-align: center;
+            padding: 2rem;
+            font-style: italic;
+            color: var(--secondary-color);
+        }
+        .hidden {
+            display: none;
+        }
+        /* Navigation Bar */
+        .nav-bar {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 65px;
+            background-color: var(--card-background);
+            display: flex;
+            justify-content: space-around;
+            align-items: center;
+            box-shadow: 0 -2px 10px rgba(0,0,0,0.1);
+            z-index: 1000;
+        }
+        .nav-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: var(--secondary-color);
+            cursor: pointer;
+            flex-grow: 1;
+            height: 100%;
+        }
+        .nav-item.active {
+            color: var(--primary-color);
+        }
+        .nav-item svg {
+            width: 24px;
+            height: 24px;
+            margin-bottom: 4px;
+        }
+        /* Expense List Cards */
+        #expenses-list-container, #recurring-expenses-list-container {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+        .expense-card {
+            display: flex;
+            flex-direction: column;
+            padding: 1rem;
+            background: var(--card-background);
+            border-radius: 10px;
+            box-shadow: var(--shadow);
+        }
+        .expense-card-main {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .expense-card-details {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+        .expense-card-icon {
+            padding: 0.8rem;
+            background-color: var(--background-color);
+            border-radius: 50%;
+        }
+        .expense-card-info {
+            display: flex;
+            flex-direction: column;
+        }
+        .expense-card-vendor {
+            font-weight: 600;
+            font-size: 1.1rem;
+        }
+        .expense-card-date {
+            color: var(--light-text-color);
+            font-size: 0.9rem;
+        }
+        .expense-card-amount {
+            font-weight: 600;
+            font-size: 1.2rem;
+            color: var(--primary-color);
+        }
+        .expense-card-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 0.5rem;
+            margin-top: 1rem;
+            border-top: 1px solid var(--border-color);
+            padding-top: 1rem;
+        }
+        .action-btn {
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            font-size: 0.9rem;
+            font-weight: 600;
+            cursor: pointer;
+            border: 1px solid var(--border-color);
+        }
+        .edit-btn {
+            background-color: var(--primary-color);
+            color: white;
+        }
+        .delete-btn {
+            background-color: var(--danger-color);
+            color: white;
+        }
+        /* OCR Result Styling */
+        #ocr-result img {
+            max-width: 100%;
+            border-radius: 8px;
+            margin-bottom: 1rem;
+        }
+        #ocr-text {
+            background: var(--background-color);
+            padding: 1rem;
+            border-radius: 8px;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            font-family: "Courier New", Courier, monospace;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        /* Modal Styling */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1001;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            overflow: auto;
+            background-color: rgba(0,0,0,0.4);
+        }
+        .modal-content {
+            background-color: #fefefe;
+            margin: 15% auto;
+            padding: 20px;
+            border: 1px solid #888;
+            width: 80%;
+            max-width: 500px;
+            border-radius: 12px;
+        }
+        .close-btn {
+            color: #aaa;
+            float: right;
+            font-size: 28px;
+            font-weight: bold;
+        }
+        .close-btn:hover,
+        .close-btn:focus {
+            color: black;
+            text-decoration: none;
+            cursor: pointer;
+        }
+        /* Filter/Search Styling */
+        .filter-container {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+        }
+        .filter-container input, .filter-container select {
+            flex-grow: 1;
+        }
+        /* KPI Cards */
+        .kpi-cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+        }
+        .kpi-card {
+            background: var(--card-background);
+            padding: 1rem;
+            border-radius: 10px;
+            box-shadow: var(--shadow);
+            text-align: center;
+        }
+        .kpi-card .value {
+            font-size: 1.8rem;
+            font-weight: 700;
+            color: var(--primary-color);
+        }
+        .kpi-card .label {
+            font-size: 0.9rem;
+            color: var(--light-text-color);
+        }
+        /* Chart Container */
+        .chart-container {
+            position: relative;
+            height: 300px; /* Fixed height for the chart */
+            width: 100%;
+            margin-bottom: 1.5rem;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <!-- Page 1: Upload & Expense Form -->
+        <div id="page-add" class="page active">
+            <div class="card">
+                <h2>Upload Receipt</h2>
+                <input type="file" id="receipt-upload" accept="image/*" class="hidden">
+                <button id="upload-btn" class="btn btn-success" onclick="document.getElementById('receipt-upload').click();">Select Image</button>
+                <div id="ocr-loader" class="loader hidden">Processing OCR...</div>
+                <div id="ocr-result" class="hidden" style="margin-top: 1.5rem;">
+                    <h3>Receipt Image</h3>
+                    <img id="receipt-image" src="" alt="Uploaded Receipt">
+                    <h3>Extracted Text</h3>
+                    <pre id="ocr-text"></pre>
+                </div>
+            </div>
+
+            <div id="form-section-card" class="card">
+                <h2>Save Expense</h2>
+                <form id="expense-form">
+                    <input type="hidden" id="image_path" name="image_path">
+                    <div class="form-group">
+                        <label for="vendor">Vendor</label>
+                        <input type="text" id="vendor" name="vendor" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="amount">Amount</label>
+                        <input type="number" step="0.01" id="amount" name="amount" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="expense_date">Date</label>
+                        <input type="date" id="expense_date" name="expense_date" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="description">Description (Optional)</label>
+                        <textarea id="description" name="description" rows="3"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label for="category">Category</label>
+                        <select id="category" name="category">
+                            <option value="Uncategorized">Uncategorized</option>
+                            <option value="Advertising & Marketing">Advertising & Marketing</option>
+                            <option value="Software & Subscriptions">Software & Subscriptions</option>
+                            <option value="Shipping & Postage">Shipping & Postage</option>
+                            <option value="Packaging & Materials">Packaging & Materials</option>
+                            <option value="Office Supplies">Office Supplies</option>
+                            <option value="Travel">Travel</option>
+                            <option value="Professional Fees">Professional Fees</option>
+                            <option value="Utilities">Utilities</option>
+                            <option value="Bank Fees">Bank Fees</option>
+                            <option value="Website & Hosting">Website & Hosting</option>
+                            <option value="Other Business Expenses">Other Business Expenses</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <input type="checkbox" id="is_gst_inclusive" name="is_gst_inclusive" checked>
+                        <label for="is_gst_inclusive">GST Inclusive (10%)</label>
+                    </div>
+                    <div class="form-group">
+                        <label for="gst_amount">Calculated GST</label>
+                        <input type="number" step="0.01" id="gst_amount" name="gst" readonly>
+                    </div>
+                    <div class="form-group">
+                        <label for="payment_method">Payment Method</label>
+                        <select id="payment_method" name="payment_method">
+                            <option value="Unknown">Unknown</option>
+                            <option value="Credit Card">Credit Card</option>
+                            <option value="Debit Card">Debit Card</option>
+                            <option value="Cash">Cash</option>
+                            <option value="Bank Transfer">Bank Transfer</option>
+                            <option value="PayPal">PayPal</option>
+                            <option value="Other">Other</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="tags">Tags (comma-separated)</label>
+                        <input type="text" id="tags" name="tags">
+                    </div>
+                    <div class="form-group">
+                        <input type="checkbox" id="is_tax_deductible" name="is_tax_deductible">
+                        <label for="is_tax_deductible">Tax Deductible</label>
+                        <button type="button" class="btn" style="width: auto; padding: 5px 10px; font-size: 0.8rem; margin-left: 10px;" onclick="window.open('/tax_guide.html', '_blank');">Help</button>
+                    </div>
+                    <div class="form-group">
+                        <label for="manual_receipt_upload">Upload Receipt Image (Optional)</label>
+                        <input type="file" id="manual_receipt_upload" accept="image/*">
+                        <img id="manual_receipt_preview" src="" alt="Receipt Preview" style="max-width: 100%; max-height: 200px; margin-top: 10px; display: none;">
+                    </div>
+                    <button type="submit" class="btn">Save Expense</button>
+                </form>
+            </div>
+        </div>
+
+        <!-- Page 2: Expenses List -->
+        <div id="page-expenses" class="page">
+            <div class="card">
+                <h2>Saved Expenses</h2>
+                <div class="filter-container">
+                    <input type="text" id="search-input" placeholder="Search by vendor or description...">
+                    <select id="category-filter">
+                        <option value="">All Categories</option>
+                        <!-- Options will be populated by JS -->
+                    </select>
+                </div>
+                <div id="list-loader" class="loader">Loading expenses...</div>
+                <div id="expenses-list-container"></div>
+            </div>
+        </div>
+
+        <!-- Page 3: Recurring Expenses -->
+        <div id="page-recurring" class="page">
+            <div class="card">
+                <h2>Recurring Expenses</h2>
+                <div id="recurring-list-loader" class="loader">Loading recurring expenses...</div>
+                <div id="recurring-expenses-list-container"></div>
+            </div>
+            <div class="card">
+                <h2>Add Recurring Expense</h2>
+                <form id="recurring-expense-form">
+                    <div class="form-group">
+                        <label for="recurring-vendor">Vendor</label>
+                        <input type="text" id="recurring-vendor" name="vendor" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="recurring-amount">Amount</label>
+                        <input type="number" step="0.01" id="recurring-amount" name="amount" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="recurring-description">Description (Optional)</label>
+                        <textarea id="recurring-description" name="description" rows="3"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label for="recurring-category">Category</label>
+                        <select id="recurring-category" name="category">
+                            <option value="Uncategorized">Uncategorized</option>
+                            <option value="Advertising & Marketing">Advertising & Marketing</option>
+                            <option value="Software & Subscriptions">Software & Subscriptions</option>
+                            <option value="Shipping & Postage">Shipping & Postage</option>
+                            <option value="Packaging & Materials">Packaging & Materials</option>
+                            <option value="Office Supplies">Office Supplies</option>
+                            <option value="Travel">Travel</option>
+                            <option value="Professional Fees">Professional Fees</option>
+                            <option value="Utilities">Utilities</option>
+                            <option value="Bank Fees">Bank Fees</option>
+                            <option value="Website & Hosting">Website & Hosting</option>
+                            <option value="Other Business Expenses">Other Business Expenses</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="recurring-payment_method">Payment Method</label>
+                        <select id="recurring-payment_method" name="payment_method">
+                            <option value="Unknown">Unknown</option>
+                            <option value="Credit Card">Credit Card</option>
+                            <option value="Debit Card">Debit Card</option>
+                            <option value="Cash">Cash</option>
+                            <option value="Bank Transfer">Bank Transfer</option>
+                            <option value="PayPal">PayPal</option>
+                            <option value="Other">Other</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="recurring-frequency">Frequency</label>
+                        <select id="recurring-frequency" name="frequency">
+                            <option value="monthly">Monthly</option>
+                            <option value="quarterly">Quarterly</option>
+                            <option value="yearly">Yearly</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="recurring-start_date">Start Date</label>
+                        <input type="date" id="recurring-start_date" name="start_date" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="recurring-end_date">End Date (Optional)</label>
+                        <input type="date" id="recurring-end_date" name="end_date">
+                    </div>
+                    <button type="submit" class="btn">Add Recurring Expense</button>
+                </form>
+            </div>
+        </div>
+
+        <!-- Page 4: Summary -->
+        <div id="page-summary" class="page">
+             <div class="card">
+                <h2>Expense Summary</h2>
+                <div class="form-group">
+                    <label for="summary_start_date">Start Date</label>
+                    <input type="date" id="summary_start_date">
+                </div>
+                <div class="form-group">
+                    <label for="summary_end_date">End Date</label>
+                    <input type="date" id="summary_end_date">
+                </div>
+                <button id="load-summary-btn" class="btn">Load Summary</button>
+                <div id="summary-loader" class="loader hidden">Loading summary...</div>
+                <div id="summary-results" class="hidden" style="margin-top: 1.5rem;">
+                    <div class="kpi-cards">
+                        <div class="kpi-card">
+                            <div class="value" id="total-expenses">$0.00</div>
+                            <div class="label">Total Expenses</div>
+                        </div>
+                        <div class="kpi-card">
+                            <div class="value" id="total-gst">$0.00</div>
+                            <div class="label">Total GST</div>
+                        </div>
+                        <div class="kpi-card">
+                            <div class="value" id="total-transactions">0</div>
+                            <div class="label">Transactions</div>
+                        </div>
+                        <div class="kpi-card">
+                            <div class="value" id="average-spending">$0.00</div>
+                            <div class="label">Avg. per Transaction</div>
+                        </div>
+                        <div class="kpi-card">
+                            <div class="value" id="total-tax-deductible">$0.00</div>
+                            <div class="label">Total Tax Deductible</div>
+                        </div>
+                    </div>
+                    <h3>Spending Trends</h3>
+                    <div class="chart-container">
+                        <canvas id="spending-trend-chart"></canvas>
+                    </div>
+                    <h3>Category Breakdown</h3>
+                    <table id="category-breakdown-table" style="width:100%; border-collapse: collapse;">
+                        <thead>
+                            <tr>
+                                <th style="text-align:left; padding: 8px; border-bottom: 1px solid var(--border-color);">Category</th>
+                                <th style="text-align:left; padding: 8px; border-bottom: 1px solid var(--border-color);">Amount</th>
+                                <th style="text-align:left; padding: 8px; border-bottom: 1px solid var(--border-color);">GST</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                    <h3>Payment Method Breakdown</h3>
+                    <div class="chart-container">
+                        <canvas id="payment-method-chart"></canvas>
+                    </div>
+                    <h3>Tags Breakdown</h3>
+                    <div class="chart-container">
+                        <canvas id="tags-chart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Page 5: Reports -->
+        <div id="page-reports" class="page">
+            <div class="card">
+                <h2>Tax Reports</h2>
+                <div class="form-group">
+                    <label for="report_start_date">Start Date</label>
+                    <input type="date" id="report_start_date">
+                </div>
+                <div class="form-group">
+                    <label for="report_end_date">End Date</label>
+                    <input type="date" id="report_end_date">
+                </div>
+                <button id="export-csv-btn" class="btn" style="margin-bottom: 1rem;">Export Detailed CSV</button>
+                <button id="export-summary-csv-btn" class="btn">Export Summary CSV</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit Expense Modal -->
+    <div id="edit-expense-modal" class="modal">
+        <div class="modal-content">
+            <span class="close-btn">&times;</span>
+            <h2>Edit Expense</h2>
+            <form id="edit-expense-form">
+                <input type="hidden" id="edit-expense-id" name="id">
+                <div class="form-group">
+                    <label for="edit-vendor">Vendor</label>
+                    <input type="text" id="edit-vendor" name="vendor" required>
+                </div>
+                <div class="form-group">
+                    <label for="edit-amount">Amount</label>
+                    <input type="number" step="0.01" id="edit-amount" name="amount" required>
+                </div>
+                <div class="form-group">
+                    <label for="edit-expense_date">Date</label>
+                    <input type="date" id="edit-expense_date" name="expense_date" required>
+                </div>
+                <div class="form-group">
+                    <label for="edit-description">Description (Optional)</label>
+                    <textarea id="edit-description" name="description" rows="3"></textarea>
+                </div>
+                <div class="form-group">
+                    <label for="edit-category">Category</label>
+                    <select id="edit-category" name="category">
+                        <option value="Uncategorized">Uncategorized</option>
+                        <option value="Advertising & Marketing">Advertising & Marketing</option>
+                        <option value="Software & Subscriptions">Software & Subscriptions</option>
+                        <option value="Shipping & Postage">Shipping & Postage</option>
+                        <option value="Packaging & Materials">Packaging & Materials</option>
+                        <option value="Office Supplies">Office Supplies</option>
+                        <option value="Travel">Travel</option>
+                        <option value="Professional Fees">Professional Fees</option>
+                        <option value="Utilities">Utilities</option>
+                        <option value="Bank Fees">Bank Fees</option>
+                        <option value="Website & Hosting">Website & Hosting</option>
+                        <option value="Other Business Expenses">Other Business Expenses</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <input type="checkbox" id="edit-is_gst_inclusive" name="is_gst_inclusive">
+                    <label for="edit-is_gst_inclusive">GST Inclusive (10%)</label>
+                </div>
+                <div class="form-group">
+                    <label for="edit-gst_amount">Calculated GST</label>
+                    <input type="number" step="0.01" id="edit-gst_amount" name="gst" readonly>
+                </div>
+                <div class="form-group">
+                    <label for="edit-payment_method">Payment Method</label>
+                    <select id="edit-payment_method" name="payment_method">
+                        <option value="Unknown">Unknown</option>
+                        <option value="Credit Card">Credit Card</option>
+                        <option value="Debit Card">Debit Card</option>
+                        <option value="Cash">Cash</option>
+                        <option value="Bank Transfer">Bank Transfer</option>
+                        <option value="PayPal">PayPal</option>
+                        <option value="Other">Other</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="edit-tags">Tags (comma-separated)</label>
+                    <input type="text" id="edit-tags" name="tags">
+                </div>
+                <div class="form-group">
+                    <input type="checkbox" id="edit-is_tax_deductible" name="is_tax_deductible">
+                    <label for="edit-is_tax_deductible">Tax Deductible</label>
+                </div>
+                <div class="form-group">
+                    <label for="edit-manual_receipt_upload">Change Receipt Image (Optional)</label>
+                    <input type="file" id="edit-manual_receipt_upload" accept="image/*">
+                    <img id="edit-receipt-image" src="" alt="Receipt Preview" style="max-width: 100%; max-height: 200px; margin-top: 10px; display: none;">
+                </div>
+                <button type="submit" class="btn">Save Changes</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Bottom Navigation Bar -->
+    <nav class="nav-bar">
+        <div class="nav-item active" data-page="add">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M11 11V5h2v6h6v2h-6v6h-2v-6H5v-2h6z"/></svg>
+            <span>Add</span>
+        </div>
+        <div class="nav-item" data-page="expenses">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M3 7h18v2H3V7zm0 4h18v2H3v-2zm0 4h18v2H3v-2z"/></svg>
+            <span>Expenses</span>
+        </div>
+        <div class="nav-item" data-page="recurring">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M16.53 5.47a.75.75 0 0 0-1.06-1.06L12 7.94 8.53 4.47a.75.75 0 0 0-1.06 1.06L10.94 9l-3.47 3.47a.75.75 0 1 0 1.06 1.06L12 10.06l3.47 3.47a.75.75 0 0 0 1.06-1.06L13.06 9l3.47-3.53z"/></svg>
+            <span>Recurring</span>
+        </div>
+        <div class="nav-item" data-page="summary">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M4 18h16V6H4v12zm2-10h12v8H6v-8z"/></svg>
+            <span>Summary</span>
+        </div>
+        <div class="nav-item" data-page="reports">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm-1 9h-2v4h2v-4zm-2-2h2V5h-2v4z"/></svg>
+            <span>Reports</span>
+        </div>
+    </nav>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            // --- Page Navigation ---
+            const navItems = document.querySelectorAll('.nav-item');
+            const pages = document.querySelectorAll('.page');
+            let spendingTrendChart = null; // Variable to hold the spending trend chart instance
+            let paymentMethodChart = null; // Variable to hold the payment method chart instance
+            let tagsChart = null; // Variable to hold the tags chart instance
+
+            function switchPage(pageId) {
+                pages.forEach(page => page.classList.remove('active'));
+                navItems.forEach(item => item.classList.remove('active'));
+
+                const newPage = document.getElementById(`page-${pageId}`);
+                const newNavItem = document.querySelector(`.nav-item[data-page='${pageId}']`);
+
+                if (newPage) newPage.classList.add('active');
+                if (newNavItem) newNavItem.classList.add('active');
+            }
+
+            navItems.forEach(item => {
+                item.addEventListener('click', () => {
+                    const pageId = item.getAttribute('data-page');
+                    switchPage(pageId);
+                });
+            });
+
+            // --- Element References ---
+            const receiptUpload = document.getElementById('receipt-upload');
+            const ocrLoader = document.getElementById('ocr-loader');
+            const ocrResult = document.getElementById('ocr-result');
+            const receiptImage = document.getElementById('receipt-image');
+            const ocrText = document.getElementById('ocr-text');
+            const expenseForm = document.getElementById('expense-form');
+            const formSectionCard = document.getElementById('form-section-card');
+            const imagePathInput = document.getElementById('image_path');
+            const expenseDateInput = document.getElementById('expense_date');
+            const amountInput = document.getElementById('amount');
+            const isGstInclusiveCheckbox = document.getElementById('is_gst_inclusive');
+            const gstAmountInput = document.getElementById('gst_amount');
+            const exportCsvBtn = document.getElementById('export-csv-btn');
+            const reportStartDateInput = document.getElementById('report_start_date');
+            const reportEndDateInput = document.getElementById('report_end_date');
+            const summaryStartDateInput = document.getElementById('summary_start_date');
+            const summaryEndDateInput = document.getElementById('summary_end_date');
+            const loadSummaryBtn = document.getElementById('load-summary-btn');
+            const summaryLoader = document.getElementById('summary-loader');
+            const summaryResults = document.getElementById('summary-results');
+            const totalExpensesSpan = document.getElementById('total-expenses');
+            const totalGstSpan = document.getElementById('total-gst');
+            const totalTransactionsSpan = document.getElementById('total-transactions');
+            const averageSpendingSpan = document.getElementById('average-spending');
+            const categoryBreakdownTableBody = document.querySelector('#category-breakdown-table tbody');
+            const exportSummaryCsvBtn = document.getElementById('export-summary-csv-btn');
+            const editExpenseModal = document.getElementById('edit-expense-modal');
+            const editExpenseForm = document.getElementById('edit-expense-form');
+            const closeBtn = document.querySelector('.close-btn');
+            const searchInput = document.getElementById('search-input');
+            const categoryFilter = document.getElementById('category-filter');
+            const recurringExpenseForm = document.getElementById('recurring-expense-form');
+            const manualReceiptUpload = document.getElementById('manual_receipt_upload');
+            const manualReceiptPreview = document.getElementById('manual_receipt_preview');
+            const editManualReceiptUpload = document.getElementById('edit-manual_receipt_upload');
+            const editReceiptImage = document.getElementById('edit-receipt-image');
+
+            // --- Event Listeners ---
+            receiptUpload.addEventListener('change', handleImageUpload);
+            manualReceiptUpload.addEventListener('change', handleManualReceiptUploadChange);
+            editManualReceiptUpload.addEventListener('change', handleEditManualReceiptUploadChange);
+            expenseForm.addEventListener('submit', handleFormSubmit);
+            amountInput.addEventListener('input', calculateGst);
+            isGstInclusiveCheckbox.addEventListener('change', calculateGst);
+            exportCsvBtn.addEventListener('click', handleExportCsv);
+            loadSummaryBtn.addEventListener('click', loadSummary);
+            exportSummaryCsvBtn.addEventListener('click', handleExportSummaryCsv);
+            closeBtn.addEventListener('click', () => editExpenseModal.style.display = 'none');
+            editExpenseForm.addEventListener('submit', handleUpdateExpense);
+            searchInput.addEventListener('input', () => loadExpenses());
+            categoryFilter.addEventListener('change', () => loadExpenses());
+            recurringExpenseForm.addEventListener('submit', handleRecurringExpenseSubmit);
+
+            // --- Initial Load ---
+            loadExpenses();
+            loadRecurringExpenses();
+            populateCategoryFilter();
+            expenseDateInput.valueAsDate = new Date();
+            calculateGst();
+
+            const today = new Date();
+            let financialYearStart = new Date(today.getFullYear(), 6, 1);
+            if (today.getMonth() < 6) {
+                financialYearStart = new Date(today.getFullYear() - 1, 6, 1);
+            }
+            reportStartDateInput.valueAsDate = financialYearStart;
+            reportEndDateInput.valueAsDate = today;
+            summaryStartDateInput.valueAsDate = financialYearStart;
+            summaryEndDateInput.valueAsDate = today;
+            
+            loadSummary();
+
+            // --- Functions ---
+            function handleManualReceiptUploadChange(event) {
+                const file = event.target.files[0];
+                if (file) {
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        manualReceiptPreview.src = e.target.result;
+                        manualReceiptPreview.style.display = 'block';
+                    };
+                    reader.readAsDataURL(file);
+                } else {
+                    manualReceiptPreview.src = '';
+                    manualReceiptPreview.style.display = 'none';
+                }
+            }
+
+            function handleEditManualReceiptUploadChange(event) {
+                const file = event.target.files[0];
+                if (file) {
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        editReceiptImage.src = e.target.result;
+                        editReceiptImage.style.display = 'block';
+                    };
+                    reader.readAsDataURL(file);
+                } else {
+                    editReceiptImage.src = '';
+                    editReceiptImage.style.display = 'none';
+                }
+            }
+
+            async function handleImageUpload(event) {
+                const file = event.target.files[0];
+                if (!file) return;
+
+                ocrLoader.classList.remove('hidden');
+                ocrResult.classList.add('hidden');
+                formSectionCard.classList.add('hidden');
+
+                const formData = new FormData();
+                formData.append('file', file);
+
+                try {
+                    const response = await fetch('/ocr/upload', { method: 'POST', body: formData });
+                    if (!response.ok) throw new Error(`OCR upload failed: ${response.statusText}`);
+                    
+                    const data = await response.json();
+                    receiptImage.src = data.image_path;
+                    ocrText.textContent = data.text || "No text found.";
+                    imagePathInput.value = data.image_path;
+
+                    if (data.extracted_data) {
+                        document.getElementById('vendor').value = data.extracted_data.vendor || '';
+                        document.getElementById('amount').value = data.extracted_data.amount || '';
+                        document.getElementById('expense_date').value = data.extracted_data.expense_date || expenseDateInput.value;
+                        document.getElementById('category').value = data.extracted_data.category || 'Uncategorized';
+                        document.getElementById('payment_method').value = data.extracted_data.payment_method || 'Unknown';
+                    }
+                    
+                    ocrResult.classList.remove('hidden');
+                    formSectionCard.classList.remove('hidden');
+                    calculateGst();
+                } catch (error) {
+                    console.error('Error:', error);
+                    alert('Failed to process image. Please try again.');
+                } finally {
+                    ocrLoader.classList.add('hidden');
+                }
+            }
+
+            function calculateGst() {
+                const amount = parseFloat(amountInput.value);
+                if (isNaN(amount) || !isGstInclusiveCheckbox.checked) {
+                    gstAmountInput.value = '0.00';
+                    return;
+                }
+                const gst = amount / 11;
+                gstAmountInput.value = gst.toFixed(2);
+            }
+
+            async function handleFormSubmit(event) {
+                event.preventDefault();
+                const formData = new FormData(expenseForm);
+                formData.set('gst', gstAmountInput.value);
+                formData.set('tags', document.getElementById('tags').value);
+                formData.set('is_tax_deductible', document.getElementById('is_tax_deductible').checked ? 1 : 0);
+
+                // Handle manual image upload
+                const manualFile = manualReceiptUpload.files[0];
+                if (manualFile) {
+                    formData.append('image_file', manualFile);
+                    formData.delete('image_path'); // Remove image_path if a new file is uploaded
+                } else if (imagePathInput.value) {
+                    // If no new file, but there's an existing image_path from OCR, keep it
+                    formData.append('image_path', imagePathInput.value);
+                } else {
+                    // If no image at all, ensure image_path is explicitly null/empty
+                    formData.append('image_path', '');
+                }
+
+                try {
+                    const response = await fetch('/expenses', { method: 'POST', body: formData });
+                    if (!response.ok) throw new Error(`Failed to save expense: ${response.statusText}`);
+                    
+                    alert('Expense saved successfully!');
+                    expenseForm.reset();
+                    ocrResult.classList.add('hidden');
+                    formSectionCard.classList.add('hidden');
+                    receiptUpload.value = '';
+                    manualReceiptUpload.value = ''; // Clear manual upload input
+                    manualReceiptPreview.src = '';
+                    manualReceiptPreview.style.display = 'none';
+                    expenseDateInput.valueAsDate = new Date();
+                    loadExpenses();
+                    loadSummary();
+                    switchPage('expenses'); // Switch to expenses page after saving
+                } catch (error) {
+                    console.error('Error:', error);
+                    alert('Failed to save expense. Please try again.');
+                }
+            }
+
+            async function loadExpenses() {
+                const listLoader = document.getElementById('list-loader');
+                const container = document.getElementById('expenses-list-container');
+                listLoader.classList.remove('hidden');
+                container.innerHTML = '';
+
+                const searchTerm = searchInput.value;
+                const category = categoryFilter.value;
+
+                let url = '/expenses';
+                const params = new URLSearchParams();
+                if (searchTerm) params.append('search', searchTerm);
+                if (category) params.append('category', category);
+
+                if (params.toString()) {
+                    url += `?${params.toString()}`;
+                }
+
+                try {
+                    const response = await fetch(url);
+                    if (!response.ok) throw new Error(`Failed to fetch expenses: ${response.statusText}`);
+                    const expenses = await response.json();
+
+                    if (expenses.length === 0) {
+                        container.innerHTML = '<p style="text-align:center; color: var(--light-text-color);">No expenses match your search.</p>';
+                        return;
+                    }
+
+                    expenses.forEach(e => {
+                        const card = document.createElement('div');
+                        card.className = 'expense-card';
+                        card.innerHTML = `
+                            <div class="expense-card-main">
+                                <div class="expense-card-details">
+                                    <div class="expense-card-icon">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+                                    </div>
+                                    <div class="expense-card-info">
+                                        <div class="expense-card-vendor">${e.vendor}</div>
+                                        <div class="expense-card-date">${e.expense_date}</div>
+                                        ${e.tags ? `<div class="expense-card-tags" style="font-size: 0.8rem; color: var(--secondary-color);">Tags: ${e.tags}</div>` : ''}
+                                        ${e.is_tax_deductible ? `<div class="expense-card-tax-deductible" style="font-size: 0.8rem; color: var(--success-color);">Tax Deductible</div>` : ''}
+                                    </div>
+                                </div>
+                                <div class="expense-card-amount">$${e.amount.toFixed(2)}</div>
+                            </div>
+                            <div class="expense-card-actions">
+                                <button class="action-btn edit-btn" data-id="${e.id}">Edit</button>
+                                <button class="action-btn delete-btn" data-id="${e.id}">Delete</button>
+                            </div>
+                        `;
+                        container.appendChild(card);
+                    });
+
+                    // Add event listeners for edit and delete buttons
+                    document.querySelectorAll('.edit-btn').forEach(button => {
+                        button.addEventListener('click', (event) => {
+                            const expenseId = event.target.dataset.id;
+                            openEditModal(expenseId);
+                        });
+                    });
+
+                    document.querySelectorAll('.delete-btn').forEach(button => {
+                        button.addEventListener('click', async (event) => {
+                            const expenseId = event.target.dataset.id;
+                            if (confirm(`Are you sure you want to delete expense ID ${expenseId}?`)) {
+                                try {
+                                    const response = await fetch(`/expenses/${expenseId}`, { method: 'DELETE' });
+                                    if (!response.ok) throw new Error(`Failed to delete expense: ${response.statusText}`);
+                                    alert('Expense deleted successfully!');
+                                    loadExpenses();
+                                    loadSummary();
+                                } catch (error) {
+                                    console.error('Error:', error);
+                                    alert('Failed to delete expense. Please try again.');
+                                }
+                            }
+                        });
+                    });
+
+                } catch (error) {
+                    console.error('Error:', error);
+                    container.innerHTML = '<p>Could not load expenses.</p>';
+                } finally {
+                    listLoader.classList.add('hidden');
+                }
+            }
+
+            async function openEditModal(expenseId) {
+                try {
+                    const response = await fetch(`/expenses/${expenseId}`);
+                    if (!response.ok) throw new Error(`Failed to fetch expense: ${response.statusText}`);
+                    const expense = await response.json();
+
+                    document.getElementById('edit-expense-id').value = expense.id;
+                    document.getElementById('edit-vendor').value = expense.vendor;
+                    document.getElementById('edit-amount').value = expense.amount;
+                    document.getElementById('edit-expense_date').value = expense.expense_date;
+                    document.getElementById('edit-description').value = expense.description;
+                    document.getElementById('edit-category').value = expense.category;
+                    document.getElementById('edit-payment_method').value = expense.payment_method;
+                    document.getElementById('edit-is_gst_inclusive').checked = expense.gst > 0;
+                    document.getElementById('edit-gst_amount').value = expense.gst.toFixed(2);
+                    document.getElementById('edit-tags').value = expense.tags || '';
+                    document.getElementById('edit-is_tax_deductible').checked = expense.is_tax_deductible === 1;
+
+                    // Display existing image in edit modal
+                    const editReceiptImage = document.getElementById('edit-receipt-image');
+                    if (expense.image_path) {
+                        editReceiptImage.src = expense.image_path;
+                        editReceiptImage.style.display = 'block';
+                    } else {
+                        editReceiptImage.src = '';
+                        editReceiptImage.style.display = 'none';
+                    }
+
+                    editExpenseModal.style.display = 'block';
+                } catch (error) {
+                    console.error('Error:', error);
+                    alert('Failed to load expense details for editing.');
+                }
+            }
+
+            async function handleUpdateExpense(event) {
+                event.preventDefault();
+                const expenseId = document.getElementById('edit-expense-id').value;
+                const formData = new FormData(editExpenseForm);
+                formData.set('tags', document.getElementById('edit-tags').value);
+                formData.set('is_tax_deductible', document.getElementById('edit-is_tax_deductible').checked ? 1 : 0);
+
+                // Handle manual image upload for edit form
+                const editManualFile = editManualReceiptUpload.files[0];
+                if (editManualFile) {
+                    formData.append('image_file', editManualFile);
+                    // If a new file is uploaded, we don't need the old image_path
+                    // The backend will handle saving the new file and updating the path
+                } else {
+                    // If no new file, but there's an existing image_path, keep it
+                    // The backend will receive image_file as None, and image_path will be preserved
+                }
+
+                try {
+                    const response = await fetch(`/expenses/${expenseId}`, {
+                        method: 'PUT',
+                        body: formData
+                    });
+
+                    if (!response.ok) throw new Error(`Failed to update expense: ${response.statusText}`);
+                    
+                    alert('Expense updated successfully!');
+                    editExpenseModal.style.display = 'none';
+                    loadExpenses();
+                    loadSummary();
+                } catch (error) {
+                    console.error('Error:', error);
+                    alert('Failed to update expense. Please try again.');
+                }
+            }
+
+            async function handleRecurringExpenseSubmit(event) {
+                event.preventDefault();
+                const formData = new FormData(recurringExpenseForm);
+                formData.set('end_date', document.getElementById('recurring-end_date').value);
+
+                try {
+                    const response = await fetch('/recurring_expenses', { method: 'POST', body: formData });
+                    if (!response.ok) {
+                        const errorText = await response.text();
+                        console.error('Error saving recurring expense:', response.status, errorText);
+                        throw new Error(`Failed to save recurring expense: ${response.statusText}. Details: ${errorText}`);
+                    }
+                    
+                    alert('Recurring expense saved successfully!');
+                    recurringExpenseForm.reset();
+                    loadRecurringExpenses();
+                } catch (error) {
+                    console.error('Error:', error);
+                    alert('Failed to save recurring expense. Please try again.');
+                }
+            }
+
+            async function loadRecurringExpenses() {
+                const listLoader = document.getElementById('recurring-list-loader');
+                const container = document.getElementById('recurring-expenses-list-container');
+                listLoader.classList.remove('hidden');
+                container.innerHTML = '';
+
+                try {
+                    const response = await fetch('/recurring_expenses');
+                    if (!response.ok) {
+                        const errorText = await response.text();
+                        console.error('Error fetching recurring expenses:', response.status, errorText);
+                        throw new Error(`Failed to fetch recurring expenses: ${response.statusText}. Details: ${errorText}`);
+                    }
+                    const contentType = response.headers.get('content-type');
+                    if (!contentType || !contentType.includes('application/json')) {
+                        const errorText = await response.text();
+                        console.error('Unexpected content type for recurring expenses:', contentType, errorText);
+                        throw new Error(`Expected JSON, but received ${contentType}. Details: ${errorText}`);
+                    }
+                    const expenses = await response.json();
+
+                    if (expenses.length === 0) {
+                        container.innerHTML = '<p style="text-align:center; color: var(--light-text-color);">No recurring expenses recorded yet.</p>';
+                        return;
+                    }
+
+                    expenses.forEach(e => {
+                        const card = document.createElement('div');
+                        card.className = 'expense-card';
+                        card.innerHTML = `
+                            <div class="expense-card-main">
+                                <div class="expense-card-details">
+                                    <div class="expense-card-icon">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+                                    </div>
+                                    <div class="expense-card-info">
+                                        <div class="expense-card-vendor">${e.vendor}</div>
+                                        <div class="expense-card-date">Next due: ${e.next_due_date} ${e.end_date ? `(Ends: ${e.end_date})` : ''}</div>
+                                    </div>
+                                </div>
+                                <div class="expense-card-amount">$${e.amount.toFixed(2)}</div>
+                            </div>
+                            <div class="expense-card-actions">
+                                <button class="action-btn delete-recurring-btn" data-id="${e.id}">Delete</button>
+                            </div>
+                        `;
+                        container.appendChild(card);
+                    });
+
+                    // Add event listeners for delete buttons
+                    document.querySelectorAll('.delete-recurring-btn').forEach(button => {
+                        button.addEventListener('click', async (event) => {
+                            const expenseId = event.target.dataset.id;
+                            if (confirm(`Are you sure you want to delete recurring expense ID ${expenseId}?`)) {
+                                try {
+                                    const response = await fetch(`/recurring_expenses/${expenseId}`, { method: 'DELETE' });
+                                    if (!response.ok) throw new Error(`Failed to delete recurring expense: ${response.statusText}`);
+                                    alert('Recurring expense deleted successfully!');
+                                    loadRecurringExpenses();
+                                } catch (error) {
+                                    console.error('Error:', error);
+                                    alert('Failed to delete recurring expense. Please try again.');
+                                }
+                            }
+                        });
+                    });
+
+                } catch (error) {
+                    console.error('Error:', error);
+                    container.innerHTML = '<p>Could not load recurring expenses.</p>';
+                } finally {
+                    listLoader.classList.add('hidden');
+                }
+            }
+            
+            async function loadSummary() {
+                summaryLoader.classList.remove('hidden');
+                summaryResults.classList.add('hidden');
+                categoryBreakdownTableBody.innerHTML = '';
+
+                const startDate = summaryStartDateInput.value;
+                const endDate = summaryEndDateInput.value;
+
+                let url = `/expenses/summary?start_date=${startDate}&end_date=${endDate}`;
+
+                try {
+                    const response = await fetch(url);
+                    if (!response.ok) {
+                        const errorText = await response.text();
+                        console.error('Error fetching summary:', response.status, errorText);
+                        throw new Error(`Failed to fetch summary: ${response.statusText}. Details: ${errorText}`);
+                    }
+                    const contentType = response.headers.get('content-type');
+                    if (!contentType || !contentType.includes('application/json')) {
+                        const errorText = await response.text();
+                        console.error('Unexpected content type for summary:', contentType, errorText);
+                        throw new Error(`Expected JSON, but received ${contentType}. Details: ${errorText}`);
+                    }
+                    const summaryData = await response.json();
+
+                    totalExpensesSpan.textContent = `$${summaryData.total_amount.toFixed(2)}`;
+                    totalGstSpan.textContent = `$${summaryData.total_gst.toFixed(2)}`;
+                    totalTransactionsSpan.textContent = summaryData.total_transactions;
+                    averageSpendingSpan.textContent = `$${summaryData.average_spending_per_transaction.toFixed(2)}`;
+
+                    if (summaryData.category_breakdown.length === 0) {
+                        categoryBreakdownTableBody.innerHTML = '<tr><td colspan="3">No expenses for this period.</td></tr>';
+                    } else {
+                        summaryData.category_breakdown.forEach(item => {
+                            const row = categoryBreakdownTableBody.insertRow();
+                            row.innerHTML = `
+                                <td style="padding: 8px;">${item.category || 'Uncategorized'}</td>
+                                <td style="padding: 8px;">$${item.total_amount.toFixed(2)}</td>
+                                <td style="padding: 8px;">$${item.total_gst.toFixed(2)}</td>
+                            `;
+                        });
+                    }
+
+                    // --- Spending Trend Chart ---
+                    const trendCtx = document.getElementById('spending-trend-chart').getContext('2d');
+                    if (spendingTrendChart) {
+                        spendingTrendChart.destroy(); // Destroy previous chart instance
+                    }
+                    spendingTrendChart = new Chart(trendCtx, {
+                        type: 'line',
+                        data: {
+                            labels: summaryData.daily_spending.map(item => item.expense_date),
+                            datasets: [{
+                                label: 'Daily Spending',
+                                data: summaryData.daily_spending.map(item => item.daily_total),
+                                borderColor: '#007bff',
+                                backgroundColor: 'rgba(0, 123, 255, 0.1)',
+                                fill: true,
+                                tension: 0.1
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            scales: {
+                                x: {
+                                    type: 'time',
+                                    time: {
+                                        unit: 'day'
+                                    },
+                                    title: {
+                                        display: true,
+                                        text: 'Date'
+                                    }
+                                },
+                                y: {
+                                    beginAtZero: true,
+                                    title: {
+                                        display: true,
+                                        text: 'Amount ($)'
+                                    }
+                                }
+                            },
+                            plugins: {
+                                legend: {
+                                    display: false
+                                }
+                            }
+                        }
+                    });
+
+                    // --- Payment Method Chart ---
+                    const paymentMethodCtx = document.getElementById('payment-method-chart').getContext('2d');
+                    if (paymentMethodChart) {
+                        paymentMethodChart.destroy(); // Destroy previous chart instance
+                    }
+                    const paymentMethodResponse = await fetch(`/expenses/payment_method_breakdown?start_date=${startDate}&end_date=${endDate}`);
+                    if (!paymentMethodResponse.ok) throw new Error(`Failed to fetch payment method breakdown: ${paymentMethodResponse.statusText}`);
+                    const paymentMethodData = await paymentMethodResponse.json();
+
+                    paymentMethodChart = new Chart(paymentMethodCtx, {
+                        type: 'pie',
+                        data: {
+                            labels: paymentMethodData.map(item => item.payment_method),
+                            datasets: [{
+                                data: paymentMethodData.map(item => item.total_amount),
+                                backgroundColor: [
+                                    '#007bff', '#28a745', '#dc3545', '#ffc107', '#17a2b8', '#6c757d', '#f8f9fa'
+                                ],
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            plugins: {
+                                legend: {
+                                    position: 'right',
+                                },
+                                title: {
+                                    display: true,
+                                    text: 'Spending by Payment Method'
+                                }
+                            }
+                        }
+                    });
+
+                    // --- Tags Chart ---
+                    const tagsCtx = document.getElementById('tags-chart').getContext('2d');
+                    if (tagsChart) {
+                        tagsChart.destroy(); // Destroy previous chart instance
+                    }
+                    const tagsResponse = await fetch(`/expenses/tags_breakdown?start_date=${startDate}&end_date=${endDate}`);
+                    if (!tagsResponse.ok) throw new Error(`Failed to fetch tags breakdown: ${tagsResponse.statusText}`);
+                    const tagsData = await tagsResponse.json();
+
+                    tagsChart = new Chart(tagsCtx, {
+                        type: 'pie',
+                        data: {
+                            labels: tagsData.map(item => item.tags),
+                            datasets: [{
+                                data: tagsData.map(item => item.total_amount),
+                                backgroundColor: [
+                                    '#007bff', '#28a745', '#dc3545', '#ffc107', '#17a2b8', '#6c757d', '#f8f9fa',
+                                    '#ADD8E6', '#90EE90', '#FFB6C1', '#DDA0DD', '#FFD700', '#FFA07A', '#20B2AA'
+                                ],
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            plugins: {
+                                legend: {
+                                    position: 'right',
+                                },
+                                title: {
+                                    display: true,
+                                    text: 'Spending by Tags'
+                                }
+                            }
+                        }
+                    });
+
+                    // --- Tax Deductible Summary ---
+                    const taxDeductibleResponse = await fetch(`/expenses/tax_deductible_summary?start_date=${startDate}&end_date=${endDate}`);
+                    if (!taxDeductibleResponse.ok) throw new Error(`Failed to fetch tax deductible summary: ${taxDeductibleResponse.statusText}`);
+                    const taxDeductibleData = await taxDeductibleResponse.json();
+                    document.getElementById('total-tax-deductible').textContent = `${taxDeductibleData.total_deductible_amount.toFixed(2)}`;
+
+                    summaryResults.classList.remove('hidden');
+                } catch (error) {
+                    console.error('Error:', error);
+                    alert('Failed to load summary. Please try again.');
+                } finally {
+                    summaryLoader.classList.add('hidden');
+                }
+            }
+
+            function populateCategoryFilter() {
+                const categories = [
+                    "Uncategorized", "Advertising & Marketing", "Software & Subscriptions",
+                    "Shipping & Postage", "Packaging & Materials", "Office Supplies", "Travel",
+                    "Professional Fees", "Utilities", "Bank Fees", "Website & Hosting", "Other Business Expenses"
+                ];
+                categories.forEach(cat => {
+                    const option = document.createElement('option');
+                    option.value = cat;
+                    option.textContent = cat;
+                    categoryFilter.appendChild(option);
+                });
+            }
+
+            async function handleExportCsv() {
+                const startDate = reportStartDateInput.value;
+                const endDate = reportEndDateInput.value;
+                const url = `/report/csv?start_date=${startDate}&end_date=${endDate}`;
+                downloadFile(url, 'expenses_report.csv');
+            }
+
+            async function handleExportSummaryCsv() {
+                const startDate = reportStartDateInput.value;
+                const endDate = reportEndDateInput.value;
+                const url = `/report/summary_csv?start_date=${startDate}&end_date=${endDate}`;
+                downloadFile(url, 'expenses_summary_report.csv');
+            }
+
+            async function downloadFile(url, defaultFilename) {
+                 try {
+                    const response = await fetch(url);
+                    if (!response.ok) throw new Error(`Failed to download file: ${response.statusText}`);
+
+                    const blob = await response.blob();
+                    const downloadUrl = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = downloadUrl;
+                    const filename = response.headers.get('Content-Disposition')
+                        ? response.headers.get('Content-Disposition').split('filename=')[1].replace(/"/g, '')
+                        : defaultFilename;
+                    a.download = filename;
+                    document.body.appendChild(a);
+                    a.click();
+                    a.remove();
+                    window.URL.revokeObjectURL(downloadUrl);
+                    alert('Report downloaded successfully!');
+                } catch (error) {
+                    console.error('Error:', error);
+                    alert('Failed to download report. Please try again.');
+                }
+            }
+        });
+    </script>
+</body>
+</html>
