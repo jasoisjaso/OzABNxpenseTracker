@@ -580,6 +580,42 @@
                 <button id="export-all-csv-btn" class="btn">Export All Expenses to CSV</button>
             </div>
         </div>
+
+        <!-- Page 6: Categorization Rules -->
+        <div id="page-rules" class="page">
+            <div class="card">
+                <h2>Categorization Rules</h2>
+                <div id="rules-list-loader" class="loader">Loading rules...</div>
+                <div id="rules-list-container"></div>
+            </div>
+            <div class="card">
+                <h2>Add New Rule</h2>
+                <form id="add-rule-form">
+                    <div class="form-group">
+                        <label for="rule-keyword">Keyword (e.g., "Woolworths")</label>
+                        <input type="text" id="rule-keyword" name="keyword" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="rule-category">Category</label>
+                        <select id="rule-category" name="category">
+                            <option value="Uncategorized">Uncategorized</option>
+                            <option value="Advertising & Marketing">Advertising & Marketing</option>
+                            <option value="Software & Subscriptions">Software & Subscriptions</option>
+                            <option value="Shipping & Postage">Shipping & Postage</option>
+                            <option value="Packaging & Materials">Packaging & Materials</option>
+                            <option value="Office Supplies">Office Supplies</option>
+                            <option value="Travel">Travel</option>
+                            <option value="Professional Fees">Professional Fees</option>
+                            <option value="Utilities">Utilities</option>
+                            <option value="Bank Fees">Bank Fees</option>
+                            <option value="Website & Hosting">Website & Hosting</option>
+                            <option value="Other Business Expenses">Other Business Expenses</option>
+                        </select>
+                    </div>
+                    <button type="submit" class="btn">Add Rule</button>
+                </form>
+            </div>
+        </div>
     </div>
 
     <!-- Edit Expense Modal -->
@@ -682,6 +718,10 @@
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm-1 9h-2v4h2v-4zm-2-2h2V5h-2v4z"/></svg>
             <span>Reports</span>
         </div>
+        <div class="nav-item" data-page="rules">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg>
+            <span>Rules</span>
+        </div>
     </nav>
 
     <script>
@@ -749,6 +789,13 @@
             const editManualReceiptUpload = document.getElementById('edit-manual_receipt_upload');
             const editReceiptImage = document.getElementById('edit-receipt-image');
 
+            // Rules page elements
+            const rulesListLoader = document.getElementById('rules-list-loader');
+            const rulesListContainer = document.getElementById('rules-list-container');
+            const addRuleForm = document.getElementById('add-rule-form');
+            const ruleKeywordInput = document.getElementById('rule-keyword');
+            const ruleCategorySelect = document.getElementById('rule-category');
+
             // --- Event Listeners ---
             receiptUpload.addEventListener('change', handleImageUpload);
             manualReceiptUpload.addEventListener('change', handleManualReceiptUploadChange);
@@ -764,6 +811,7 @@
             searchInput.addEventListener('input', () => loadExpenses());
             categoryFilter.addEventListener('change', () => loadExpenses());
             recurringExpenseForm.addEventListener('submit', handleRecurringExpenseSubmit);
+            addRuleForm.addEventListener('submit', handleAddRule); // New rule form submission
 
             // --- Initial Load ---
             loadExpenses();
@@ -1414,6 +1462,86 @@
                     alert('Failed to download report. Please try again.');
                 }
             }
+
+            // --- Categorization Rules Functions ---
+            async function loadRules() {
+                rulesListLoader.classList.remove('hidden');
+                rulesListContainer.innerHTML = '';
+
+                try {
+                    const response = await fetch('/categorization_rules');
+                    if (!response.ok) throw new Error(`Failed to fetch rules: ${response.statusText}`);
+                    const rules = await response.json();
+
+                    if (rules.length === 0) {
+                        rulesListContainer.innerHTML = '<p style="text-align:center; color: var(--light-text-color);">No categorization rules defined yet.</p>';
+                        return;
+                    }
+
+                    rules.forEach(rule => {
+                        const ruleCard = document.createElement('div');
+                        ruleCard.className = 'expense-card'; // Re-using expense-card style for consistency
+                        ruleCard.innerHTML = `
+                            <div class="expense-card-main">
+                                <div class="expense-card-info">
+                                    <div class="expense-card-vendor">Keyword: ${rule.keyword}</div>
+                                    <div class="expense-card-date">Category: ${rule.category}</div>
+                                </div>
+                                <div class="expense-card-actions">
+                                    <button class="action-btn delete-rule-btn" data-id="${rule.id}">Delete</button>
+                                </div>
+                            </div>
+                        `;
+                        rulesListContainer.appendChild(ruleCard);
+                    });
+
+                    document.querySelectorAll('.delete-rule-btn').forEach(button => {
+                        button.addEventListener('click', async (event) => {
+                            const ruleId = event.target.dataset.id;
+                            if (confirm(`Are you sure you want to delete this rule (ID: ${ruleId})?`)) {
+                                try {
+                                    const response = await fetch(`/categorization_rules/${ruleId}`, { method: 'DELETE' });
+                                    if (!response.ok) throw new Error(`Failed to delete rule: ${response.statusText}`);
+                                    alert('Rule deleted successfully!');
+                                    loadRules();
+                                } catch (error) {
+                                    console.error('Error:', error);
+                                    alert('Failed to delete rule. Please try again.');
+                                }
+                            }
+                        });
+                    });
+
+                } catch (error) {
+                    console.error('Error loading rules:', error);
+                    rulesListContainer.innerHTML = '<p>Could not load rules.</p>';
+                } finally {
+                    rulesListLoader.classList.add('hidden');
+                }
+            }
+
+            async function handleAddRule(event) {
+                event.preventDefault();
+                const formData = new FormData(addRuleForm);
+
+                try {
+                    const response = await fetch('/categorization_rules', { method: 'POST', body: formData });
+                    if (!response.ok) {
+                        const errorText = await response.text();
+                        console.error('Error adding rule:', response.status, errorText);
+                        throw new Error(`Failed to add rule: ${response.statusText}. Details: ${errorText}`);
+                    }
+                    alert('Rule added successfully!');
+                    addRuleForm.reset();
+                    loadRules();
+                } catch (error) {
+                    console.error('Error:', error);
+                    alert('Failed to add rule. Please try again.');
+                }
+            }
+
+            // Initial load for rules page
+            loadRules();
         });
     </script>
 </body>

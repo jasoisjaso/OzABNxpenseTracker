@@ -4,13 +4,15 @@ from pathlib import Path
 from fastapi import FastAPI, File, UploadFile, Form, HTTPException
 from fastapi.responses import FileResponse, StreamingResponse
 from typing import Optional
-from fastapi.staticfiles import StaticFiles
-from PIL import Image, ImageOps
 import pytesseract
+pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
 import logging
 import re
 import csv
 from datetime import datetime, timedelta
+from dateutil.relativedelta import relativedelta
+import io
+from fastapi.staticfiles import StaticFiles
 
 # --- Configuration ---
 UPLOADS_DIR = Path("uploads")
@@ -75,10 +77,28 @@ def init_db():
             cursor.execute("ALTER TABLE expenses ADD COLUMN is_tax_deductible INTEGER DEFAULT 0")
             logger.info("Added 'is_tax_deductible' column to 'expenses' table.")
 
+        conn.commit() # Commit changes for expenses table alterations
         conn.close()
         logger.info("Database initialized successfully.")
     except sqlite3.Error as e:
         logger.error(f"Database error: {e}")
+        raise
+
+    try:
+        conn = sqlite3.connect(DATABASE_FILE)
+        cursor = conn.cursor()
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS categorization_rules (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                keyword TEXT NOT NULL UNIQUE,
+                category TEXT NOT NULL
+            )
+        """)
+        conn.commit()
+        conn.close()
+        logger.info("Categorization rules table initialized successfully.")
+    except sqlite3.Error as e:
+        logger.error(f"Database error for categorization_rules: {e}")
         raise
 
 # --- FastAPI Application ---
@@ -92,20 +112,38 @@ def extract_expense_data(ocr_text: str):
     lines = ocr_text.split('\n')
     normalized_text = ocr_text.lower()
 
+    # --- Apply Categorization Rules First ---
+    category = "Uncategorized"
+    try:
+        conn = sqlite3.connect(DATABASE_FILE)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute("SELECT keyword, category FROM categorization_rules")
+        rules = cursor.fetchall()
+        conn.close()
+
+        for rule in rules:
+            if rule["keyword"].lower() in normalized_text:
+                category = rule["category"]
+                break
+    except sqlite3.Error as e:
+        logger.error(f"Error fetching categorization rules: {e}")
+
     # --- Receipt Profiling ---
+    profile = "generic"
     if "bunnings" in normalized_text:
         profile = "bunnings"
     elif any(keyword in normalized_text for keyword in ["australia post", "auspost", "lodgement", "parcel post"]):
         profile = "auspost"
     elif "bpay" in normalized_text or ("invoice" in normalized_text and "amount due" in normalized_text):
         profile = "utility_bill"
-    else:
-        profile = "generic"
 
     # --- Extraction based on Profile ---
     vendor = "Unknown Vendor"
     amount = 0.0
     expense_date = ""
+    category = "Uncategorized"
+    payment_method = "Unknown"
 
     # Profile-specific logic
     if profile == "bunnings":
@@ -179,8 +217,11 @@ def extract_expense_data(ocr_text: str):
             except ValueError:
                 pass
 
-    category = "Uncategorized"
-    payment_method = "Unknown"
+    # If category is still Uncategorized, try to get suggestions
+    if category == "Uncategorized":
+        category_suggestions = get_category_suggestions(ocr_text, vendor)
+        if category_suggestions:
+            category = category_suggestions[0] # Use the first suggestion as the default
 
     return {
         "vendor": vendor,
@@ -188,7 +229,7 @@ def extract_expense_data(ocr_text: str):
         "expense_date": expense_date,
         "category": category,
         "payment_method": payment_method,
-        "category_suggestions": get_category_suggestions(ocr_text, vendor)
+        "category_suggestions": get_category_suggestions(ocr_text, vendor) # Still provide suggestions for manual override
     }
 
 def get_category_suggestions(ocr_text: str, vendor: str) -> list[str]:
@@ -233,7 +274,6 @@ async def startup_event():
 app.mount("/uploads", StaticFiles(directory=UPLOADS_DIR), name="uploads")
 
 
-
 @app.get("/tax_guide.html")
 async def get_tax_guide():
     """
@@ -255,6 +295,8 @@ async def ocr_upload(file: UploadFile = File(...)):
 
         # Perform OCR
         try:
+            # PIL import is here because pytesseract needs it, but it's not directly used by FastAPI
+            from PIL import Image, ImageOps
             img = Image.open(file_path)
             # Apply EXIF orientation if available
             img = ImageOps.exif_transpose(img)
@@ -329,9 +371,6 @@ async def create_expense(
         raise HTTPException(status_code=500, detail=f"Database error: {e}")
 
 
-from datetime import datetime, timedelta
-import io
-from dateutil.relativedelta import relativedelta
 
 @app.get("/expenses")
 async def get_expenses(search: str = None, category: str = None):
@@ -755,6 +794,30 @@ async def get_recurring_expenses():
         logger.error(f"Failed to retrieve recurring expenses: {e}")
         raise HTTPException(status_code=500, detail=f"Database error: {e}")
 
+@app.get("/upcoming-bills")
+async def get_upcoming_bills():
+    """
+    Retrieves upcoming recurring bills for the next 30 days.
+    """
+    try:
+        conn = sqlite3.connect(DATABASE_FILE)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        today = datetime.today().strftime('%Y-%m-%d')
+        thirty_days_later = (datetime.today() + timedelta(days=30)).strftime('%Y-%m-%d')
+
+        query = "SELECT vendor, amount, next_due_date FROM recurring_expenses WHERE next_due_date >= ? AND next_due_date <= ? ORDER BY next_due_date ASC"
+        
+        cursor.execute(query, (today, thirty_days_later))
+        upcoming_bills = [dict(row) for row in cursor.fetchall()]
+        conn.close()
+        return upcoming_bills
+
+    except sqlite3.Error as e:
+        logger.error(f"Failed to retrieve upcoming bills: {e}")
+        raise HTTPException(status_code=500, detail=f"Database error: {e}")
+
 @app.delete("/recurring_expenses/{expense_id}")
 async def delete_recurring_expense(expense_id: int):
     """
@@ -772,6 +835,64 @@ async def delete_recurring_expense(expense_id: int):
         return {"status": "success", "message": f"Recurring expense {expense_id} deleted"}
     except sqlite3.Error as e:
         logger.error(f"Failed to delete recurring expense: {e}")
+        raise HTTPException(status_code=500, detail=f"Database error: {e}")
+
+@app.post("/categorization_rules")
+async def create_categorization_rule(
+    keyword: str = Form(...),
+    category: str = Form(...)
+):
+    """
+    Creates a new categorization rule.
+    """
+    try:
+        conn = sqlite3.connect(DATABASE_FILE)
+        cursor = conn.cursor()
+        cursor.execute("INSERT INTO categorization_rules (keyword, category) VALUES (?, ?)", (keyword, category))
+        conn.commit()
+        conn.close()
+        logger.info(f"Categorization rule created: {keyword} -> {category}")
+        return {"status": "success", "keyword": keyword, "category": category}
+    except sqlite3.IntegrityError:
+        raise HTTPException(status_code=400, detail="Rule with this keyword already exists.")
+    except sqlite3.Error as e:
+        logger.error(f"Failed to create categorization rule: {e}")
+        raise HTTPException(status_code=500, detail=f"Database error: {e}")
+
+@app.get("/categorization_rules")
+async def get_categorization_rules():
+    """
+    Retrieves all categorization rules.
+    """
+    try:
+        conn = sqlite3.connect(DATABASE_FILE)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute("SELECT id, keyword, category FROM categorization_rules")
+        rules = [dict(row) for row in cursor.fetchall()]
+        conn.close()
+        return rules
+    except sqlite3.Error as e:
+        logger.error(f"Failed to retrieve categorization rules: {e}")
+        raise HTTPException(status_code=500, detail=f"Database error: {e}")
+
+@app.delete("/categorization_rules/{rule_id}")
+async def delete_categorization_rule(rule_id: int):
+    """
+    Deletes a categorization rule by ID.
+    """
+    try:
+        conn = sqlite3.connect(DATABASE_FILE)
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM categorization_rules WHERE id = ?", (rule_id,))
+        conn.commit()
+        conn.close()
+        if cursor.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Rule not found")
+        logger.info(f"Categorization rule with ID {rule_id} deleted successfully.")
+        return {"status": "success", "message": f"Rule {rule_id} deleted"}
+    except sqlite3.Error as e:
+        logger.error(f"Failed to delete categorization rule: {e}")
         raise HTTPException(status_code=500, detail=f"Database error: {e}")
 
 async def check_and_create_recurring_expenses():
@@ -940,7 +1061,7 @@ async def get_summary_csv_report(start_date: str = None, end_date: str = None):
             writer.writerow([
                 row["category"],
                 f"{row['total_amount']:.2f}",
-                f"{row['total_gst']:.2f}"
+                f"{row['gst']:.2f}"
             ])
 
         output.seek(0)
@@ -965,3 +1086,59 @@ async def get_summary_csv_report(start_date: str = None, end_date: str = None):
     except sqlite3.Error as e:
         logger.error(f"Failed to generate summary CSV report: {e}")
         raise HTTPException(status_code=500, detail=f"Database error: {e}")
+
+@app.get("/api/export/csv")
+async def export_all_to_csv():
+    """
+    Generates a CSV file of all expenses.
+    """
+    try:
+        conn = sqlite3.connect(DATABASE_FILE)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        query = "SELECT expense_date, vendor, description, category, amount, gst, payment_method, tags, is_tax_deductible FROM expenses ORDER BY expense_date DESC"
+
+        cursor.execute(query)
+        expenses = cursor.fetchall()
+        conn.close()
+
+        # Create CSV in memory
+        output = io.StringIO()
+        writer = csv.writer(output)
+
+        # Write header
+        writer.writerow(["Date", "Vendor", "Description", "Category", "Amount", "GST", "Payment Method", "Tags", "Tax Deductible"])
+
+        # Write data rows
+        for exp in expenses:
+            writer.writerow([
+                exp["expense_date"],
+                exp["vendor"],
+                exp["description"],
+                exp["category"],
+                f"{exp['amount']:.2f}",
+                f"{exp['gst']:.2f}",
+                exp["payment_method"],
+                exp["tags"],
+                "Yes" if exp["is_tax_deductible"] == 1 else "No"
+            ])
+
+        output.seek(0)
+
+        filename = f"digital_shoebox_export_{datetime.now().strftime('%Y-%m-%d')}.csv"
+
+        return StreamingResponse(
+            iter([output.getvalue()]),
+            media_type="text/csv",
+            headers={
+                "Content-Disposition": f"attachment; filename={filename}"
+            }
+        )
+
+    except sqlite3.Error as e:
+        logger.error(f"Failed to generate full CSV export: {e}")
+        raise HTTPException(status_code=500, detail=f"Database error: {e}")
+
+# Mount the 'frontend' directory to serve the main application
+app.mount("/", StaticFiles(directory="../frontend", html=True), name="frontend")
