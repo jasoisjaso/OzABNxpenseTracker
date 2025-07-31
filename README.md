@@ -7,7 +7,8 @@ OzABNxpenseTracker is a simple, self-hosted expense tracking application for Aus
 *   **Expense Tracking:** Record vendor, amount, date, description, and category for each expense.
 *   **Receipt OCR:** Upload a receipt image and the application will attempt to automatically extract the vendor, amount, and date.
 *   **Recurring Expenses:** Set up and track recurring expenses (e.g., monthly subscriptions).
-*   **Reporting:** Generate CSV reports of your expenses for a given date range.
+*   **Upcoming Bills:** View upcoming recurring expenses due in the next 30 days on the summary dashboard.
+*   **Reporting:** Generate CSV reports of your expenses for a given date range, including a comprehensive export of all expenses.
 *   **Tax Guide:** Includes a helpful guide on common tax-deductible expenses for Australian sole traders.
 *   **Dockerized:** The entire application is containerized for easy deployment.
 
