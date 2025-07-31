@@ -520,6 +520,22 @@
                             <div class="label">Total Tax Deductible</div>
                         </div>
                     </div>
+                    <!-- Upcoming Bills Card -->
+                    <div class="card" id="upcoming-bills-card" style="margin-top: 1.5rem;">
+                        <h3>Upcoming Bills (Next 30 Days)</h3>
+                        <div id="upcoming-bills-loader" class="loader">Loading...</div>
+                        <table id="upcoming-bills-table" style="width:100%; border-collapse: collapse;">
+                            <thead>
+                                <tr>
+                                    <th style="text-align:left; padding: 8px; border-bottom: 1px solid var(--border-color);">Due Date</th>
+                                    <th style="text-align:left; padding: 8px; border-bottom: 1px solid var(--border-color);">Vendor</th>
+                                    <th style="text-align:right; padding: 8px; border-bottom: 1px solid var(--border-color);">Amount</th>
+                                </tr>
+                            </thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+
                     <h3>Spending Trends</h3>
                     <div class="chart-container">
                         <canvas id="spending-trend-chart"></canvas>
@@ -559,8 +575,9 @@
                     <label for="report_end_date">End Date</label>
                     <input type="date" id="report_end_date">
                 </div>
-                <button id="export-csv-btn" class="btn" style="margin-bottom: 1rem;">Export Detailed CSV</button>
-                <button id="export-summary-csv-btn" class="btn">Export Summary CSV</button>
+                
+                <button id="export-summary-csv-btn" class="btn" style="margin-bottom: 1rem;">Export Summary CSV</button>
+                <button id="export-all-csv-btn" class="btn">Export All Expenses to CSV</button>
             </div>
         </div>
     </div>
@@ -707,7 +724,6 @@
             const amountInput = document.getElementById('amount');
             const isGstInclusiveCheckbox = document.getElementById('is_gst_inclusive');
             const gstAmountInput = document.getElementById('gst_amount');
-            const exportCsvBtn = document.getElementById('export-csv-btn');
             const reportStartDateInput = document.getElementById('report_start_date');
             const reportEndDateInput = document.getElementById('report_end_date');
             const summaryStartDateInput = document.getElementById('summary_start_date');
@@ -721,6 +737,7 @@
             const averageSpendingSpan = document.getElementById('average-spending');
             const categoryBreakdownTableBody = document.querySelector('#category-breakdown-table tbody');
             const exportSummaryCsvBtn = document.getElementById('export-summary-csv-btn');
+            const exportAllCsvBtn = document.getElementById('export-all-csv-btn');
             const editExpenseModal = document.getElementById('edit-expense-modal');
             const editExpenseForm = document.getElementById('edit-expense-form');
             const closeBtn = document.querySelector('.close-btn');
@@ -739,9 +756,9 @@
             expenseForm.addEventListener('submit', handleFormSubmit);
             amountInput.addEventListener('input', calculateGst);
             isGstInclusiveCheckbox.addEventListener('change', calculateGst);
-            exportCsvBtn.addEventListener('click', handleExportCsv);
             loadSummaryBtn.addEventListener('click', loadSummary);
             exportSummaryCsvBtn.addEventListener('click', handleExportSummaryCsv);
+            exportAllCsvBtn.addEventListener('click', handleExportAllCsv);
             closeBtn.addEventListener('click', () => editExpenseModal.style.display = 'none');
             editExpenseForm.addEventListener('submit', handleUpdateExpense);
             searchInput.addEventListener('input', () => loadExpenses());
@@ -1312,14 +1329,40 @@
                     if (!taxDeductibleResponse.ok) throw new Error(`Failed to fetch tax deductible summary: ${taxDeductibleResponse.statusText}`);
                     const taxDeductibleData = await taxDeductibleResponse.json();
                     document.getElementById('total-tax-deductible').textContent = `${taxDeductibleData.total_deductible_amount.toFixed(2)}`;
-
-                    summaryResults.classList.remove('hidden');
                 } catch (error) {
-                    console.error('Error:', error);
-                    alert('Failed to load summary. Please try again.');
-                } finally {
-                    summaryLoader.classList.add('hidden');
+                    console.error('Error loading tax deductible summary:', error);
                 }
+
+                // --- Upcoming Bills ---
+                const upcomingBillsLoader = document.getElementById('upcoming-bills-loader');
+                const upcomingBillsTableBody = document.querySelector('#upcoming-bills-table tbody');
+                upcomingBillsLoader.classList.remove('hidden');
+                upcomingBillsTableBody.innerHTML = '';
+                try {
+                    const upcomingBillsResponse = await fetch('/upcoming-bills');
+                    if (!upcomingBillsResponse.ok) throw new Error(`Failed to fetch upcoming bills: ${upcomingBillsResponse.statusText}`);
+                    const upcomingBillsData = await upcomingBillsResponse.json();
+                    if (upcomingBillsData.length === 0) {
+                        upcomingBillsTableBody.innerHTML = '<tr><td colspan="3" style="text-align:center; color: var(--light-text-color);">No upcoming bills in the next 30 days.</td></tr>';
+                    } else {
+                        upcomingBillsData.forEach(bill => {
+                            const row = upcomingBillsTableBody.insertRow();
+                            row.innerHTML = `
+                                <td style="padding: 8px;">${bill.next_due_date}</td>
+                                <td style="padding: 8px;">${bill.vendor}</td>
+                                <td style="padding: 8px; text-align:right;">${bill.amount.toFixed(2)}</td>
+                            `;
+                        });
+                    }
+                } catch (error) {
+                    console.error('Error fetching upcoming bills:', error);
+                    upcomingBillsTableBody.innerHTML = '<tr><td colspan="3" style="text-align:center; color: var(--danger-color);">Could not load upcoming bills.</td></tr>';
+                } finally {
+                    upcomingBillsLoader.classList.add('hidden');
+                }
+
+                summaryResults.classList.remove('hidden');
+                summaryLoader.classList.add('hidden');
             }
 
             function populateCategoryFilter() {
@@ -1336,18 +1379,16 @@
                 });
             }
 
-            async function handleExportCsv() {
-                const startDate = reportStartDateInput.value;
-                const endDate = reportEndDateInput.value;
-                const url = `/report/csv?start_date=${startDate}&end_date=${endDate}`;
-                downloadFile(url, 'expenses_report.csv');
-            }
-
             async function handleExportSummaryCsv() {
                 const startDate = reportStartDateInput.value;
                 const endDate = reportEndDateInput.value;
                 const url = `/report/summary_csv?start_date=${startDate}&end_date=${endDate}`;
                 downloadFile(url, 'expenses_summary_report.csv');
+            }
+
+            async function handleExportAllCsv() {
+                const url = `/api/export/csv`;
+                downloadFile(url, 'digital_shoebox_all_expenses.csv');
             }
 
             async function downloadFile(url, defaultFilename) {

@@ -85,36 +85,77 @@ def init_db():
 app = FastAPI(title="Digital Shoebox API")
 
 def extract_expense_data(ocr_text: str):
+    """
+    Extracts expense data from OCR text using a multi-layered approach.
+    It first tries to classify the receipt and then applies specific rules.
+    """
+    lines = ocr_text.split('\n')
+    normalized_text = ocr_text.lower()
+
+    # --- Receipt Profiling ---
+    if "bunnings" in normalized_text:
+        profile = "bunnings"
+    elif any(keyword in normalized_text for keyword in ["australia post", "auspost", "lodgement", "parcel post"]):
+        profile = "auspost"
+    elif "bpay" in normalized_text or ("invoice" in normalized_text and "amount due" in normalized_text):
+        profile = "utility_bill"
+    else:
+        profile = "generic"
+
+    # --- Extraction based on Profile ---
     vendor = "Unknown Vendor"
     amount = 0.0
     expense_date = ""
-    category = "Uncategorized"
-    payment_method = "Unknown"
 
-    # Normalize text for easier parsing (e.g., remove extra spaces, convert to lowercase for some checks)
-    normalized_text = ocr_text.lower()
-    lines = ocr_text.split('\n')
-
-    # --- Amount Extraction ---
-    # Look for patterns like $XX.XX, XX.XX, or words like TOTAL, BALANCE, AMOUNT DUE
-    # More robust regex for amount, considering common total indicators
-    amount_patterns = [
-        r'(?:total|balance|amount due|subtotal|grand total)\s*[€£]?\s*(\d{1,3}(?:[.,]\d{3})*(?:[.,]\d{2}))', # e.g., Total $123.45, Balance 1.234,56
-        r'[€£]?\s*(\d{1,3}(?:[.,]\d{3})*(?:[.,]\d{2}))\s*(?:total|balance|amount due)', # e.g., $123.45 Total
-        r'(\d{1,3}(?:[.,]\d{3})*(?:[.,]\d{2}))' # General number with two decimal places
-    ]
-    for pattern in amount_patterns:
-        amount_match = re.search(pattern, normalized_text, re.IGNORECASE)
+    # Profile-specific logic
+    if profile == "bunnings":
+        vendor = "Bunnings Warehouse"
+        amount_match = re.search(r'total\s*\$?([\d,]+\.\d{2})', normalized_text, re.IGNORECASE)
         if amount_match:
-            # Clean the matched amount (remove commas, replace comma decimal with dot)
-            matched_amount = amount_match.group(1).replace(',', '')
-            if '.' in matched_amount and ',' in amount_match.group(1): # Handle European decimal comma
-                matched_amount = matched_amount.replace('.', '').replace(',', '.')
-            amount = float(matched_amount)
-            break
+            amount = float(amount_match.group(1).replace(',', ''))
 
-    # --- Date Extraction ---
-    # Common Australian date formats: DD/MM/YYYY, DD-MM-YYYY, YYYY-MM-DD, DD Mon YYYY
+    elif profile == "auspost":
+        vendor = "Australia Post"
+        amount_match = re.search(r'total\s*\$?([\d,]+\.\d{2})', normalized_text, re.IGNORECASE)
+        if amount_match:
+            amount = float(amount_match.group(1).replace(',', ''))
+
+    elif profile == "utility_bill":
+        for line in lines[:3]:
+            if len(line.strip()) > 3:
+                vendor = line.strip()
+                break
+        amount_match = re.search(r'(?:amount due|new charges|total amount due|please pay)\s*\$?([\d,]+\.\d{2})', normalized_text, re.IGNORECASE)
+        if amount_match:
+            amount = float(amount_match.group(1).replace(',', ''))
+
+    # --- Generic Fallback Logic ---
+    if vendor == "Unknown Vendor":
+        # Scoring system for vendor
+        best_score = 0
+        for line in lines[:8]: # Check top 8 lines
+            line = line.strip()
+            if len(line) > 3 and len(line) < 40:
+                score = 0
+                if line.isupper(): # All caps is a good sign
+                    score += 10
+                if re.search(r'(ltd|pty|inc|warehouse|store|market)', line.lower()): # Keywords
+                    score += 10
+                if not re.search(r'[\d/:.]', line): # No numbers, slashes, or colons
+                    score += 5
+                if not any(keyword in line.lower() for keyword in ["total", "date", "cash", "change", "gst", "invoice", "receipt", "address", "phone", "delivery"]):
+                    score += 5
+                
+                if score > best_score:
+                    best_score = score
+                    vendor = line
+
+    if amount == 0.0:
+        amounts = re.findall(r'\$?([\d,]+\.\d{2})', normalized_text)
+        if amounts:
+            amount = max([float(a.replace(',', '')) for a in amounts])
+
+    # --- Date Extraction (remains the same) ---
     date_patterns = [
         r'\b(\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4})\b', # DD/MM/YY or DD-MM-YYYY
         r'\b(\d{4}[-/.]\d{1,2}[-/.]\d{1,2})\b', # YYYY-MM-DD
@@ -125,99 +166,21 @@ def extract_expense_data(ocr_text: str):
         if date_match:
             raw_date = date_match.group(1)
             try:
-                # Attempt to parse and normalize to YYYY-MM-DD
                 if re.match(r'\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4}', raw_date):
-                    # Handle DD/MM/YY or DD-MM-YYYY
                     parts = re.split(r'[-/.]', raw_date)
-                    if len(parts[2]) == 2: # Convert YY to YYYY
-                        parts[2] = '20' + parts[2] if int(parts[2]) < 50 else '19' + parts[2]
+                    if len(parts[2]) == 2: parts[2] = '20' + parts[2]
                     expense_date = f"{parts[2]}-{parts[1].zfill(2)}-{parts[0].zfill(2)}"
                 elif re.match(r'\d{4}[-/.]\d{1,2}[-/.]\d{1,2}', raw_date):
-                    # YYYY-MM-DD
                     parts = re.split(r'[-/.]', raw_date)
                     expense_date = f"{parts[0]}-{parts[1].zfill(2)}-{parts[2].zfill(2)}"
                 elif re.match(r'\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{4}', raw_date, re.IGNORECASE):
-                    # DD Mon YYYY
-                    from datetime import datetime
                     expense_date = datetime.strptime(raw_date, '%d %b %Y').strftime('%Y-%m-%d')
                 break
             except ValueError:
-                pass # Keep expense_date as empty if parsing fails
+                pass
 
-    # --- Vendor Extraction ---
-    # Look for common company indicators or specific keywords
-    # This is still challenging and often requires more advanced NLP or a database of known vendors.
-    # For now, we'll try to find common patterns or keywords.
-    vendor_keywords = {
-        "coles": "Coles", "woolworths": "Woolworths", "bunnings": "Bunnings",
-        "kmart": "Kmart", "target": "Target", "aldi": "Aldi", "iga": "IGA",
-        "officeworks": "Officeworks", "telstra": "Telstra", "optus": "Optus",
-        "vodafone": "Vodafone", "agl": "AGL", "origin energy": "Origin Energy",
-        "qantas": "Qantas", "virgin australia": "Virgin Australia",
-        "uber": "Uber", "menulog": "Menulog", "deliveroo": "Deliveroo",
-        "amazon": "Amazon", "ebay": "eBay", "microsoft": "Microsoft",
-        "google": "Google", "apple": "Apple", "xero": "Xero", "hnry": "Hnry",
-        "rounded": "Rounded", "ato": "ATO", "council": "Council"
-    }
-    for keyword, v_name in vendor_keywords.items():
-        if keyword in normalized_text:
-            vendor = v_name
-            break
-    
-    # Fallback for vendor: try to find a prominent line that looks like a company name
-    if vendor == "Unknown Vendor":
-        for line in lines:
-            if len(line.strip()) > 5 and len(line.strip()) < 30 and not re.search(r'\d', line) and not re.search(r'total|amount|date', line, re.IGNORECASE):
-                # Simple heuristic: line is not too short/long, no numbers, no common expense words
-                vendor = line.strip()
-                break
-
-    # --- Category Suggestion (based on vendor or keywords) ---
-    category_keywords = {
-        "shopify": "Software & Subscriptions",
-        "facebook": "Advertising & Marketing",
-        "instagram": "Advertising & Marketing",
-        "google ads": "Advertising & Marketing",
-        "marketing": "Advertising & Marketing",
-        "post office": "Shipping & Postage",
-        "auspost": "Shipping & Postage",
-        "pack": "Packaging & Materials",
-        "box": "Packaging & Materials",
-        "officeworks": "Office Supplies",
-        "staples": "Office Supplies",
-        "qantas": "Travel",
-        "virgin australia": "Travel",
-        "flight": "Travel",
-        "uber": "Travel",
-        "accountant": "Professional Fees",
-        "legal": "Professional Fees",
-        "consulting": "Professional Fees",
-        "telstra": "Utilities",
-        "optus": "Utilities",
-        "agl": "Utilities",
-        "energy": "Utilities",
-        "bank fee": "Bank Fees",
-        "website": "Website & Hosting",
-        "hosting": "Website & Hosting",
-        "domain": "Website & Hosting",
-        "other business": "Other Business Expenses",
-        "council": "Utilities" # Keeping council under utilities for now, as rates are often utility-like
-    }
-    for keyword, cat_name in category_keywords.items():
-        if keyword in normalized_text or keyword in vendor.lower():
-            category = cat_name
-            break
-
-    # --- Payment Method Suggestion ---
-    payment_keywords = {
-        "cash": "Cash", "eftpos": "Debit Card", "debit": "Debit Card",
-        "credit card": "Credit Card", "visa": "Credit Card", "mastercard": "Credit Card",
-        "paypal": "PayPal", "bank transfer": "Bank Transfer", "bpay": "Bank Transfer"
-    }
-    for keyword, pm_name in payment_keywords.items():
-        if keyword in normalized_text:
-            payment_method = pm_name
-            break
+    category = "Uncategorized"
+    payment_method = "Unknown"
 
     return {
         "vendor": vendor,
